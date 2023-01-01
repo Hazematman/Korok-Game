@@ -1,13 +1,17 @@
 #include <iostream>
 #include <fstream>
+#include <vector>
+#include <stdint.h>
 #include <SDL2/SDL.h>
 #include <GL/gl.h>
+#include <glm/glm.hpp>
+#include <glm/gtx/euler_angles.hpp>
 using namespace std;
 
 #define WINDOW_WIDTH 640
 #define WINDOW_HEIGHT 480
 
-struct tile_verts
+struct tile_vert
 {
     float x,y,z,u,v;
 };
@@ -15,7 +19,7 @@ struct tile_verts
 struct tile_model
 {
     int num_verts;
-    tile_verts *vert_data;
+    tile_vert *vert_data;
 };
 
 struct tile_set
@@ -52,8 +56,8 @@ tile_set *load_model(const char *file_name)
         {
             tile_model &current_tile = tiles->tiles[i];
             file.read((char*)&current_tile.num_verts, sizeof(current_tile.num_verts));
-            current_tile.vert_data = new tile_verts[current_tile.num_verts];
-            file.read((char*)current_tile.vert_data, current_tile.num_verts*sizeof(tile_verts));
+            current_tile.vert_data = new tile_vert[current_tile.num_verts];
+            file.read((char*)current_tile.vert_data, current_tile.num_verts*sizeof(tile_vert));
         }
 
         file.close();
@@ -64,6 +68,56 @@ tile_set *load_model(const char *file_name)
         return NULL;
     }
 };
+
+struct map_cell
+{
+    int rotation;
+    int type;
+};
+
+struct map_grid
+{
+    int x_size, y_size, z_size;
+    map_cell *cells;
+};
+
+GLuint build_tile_mesh(map_grid &grid, tile_set &set)
+{
+    vector<glm::vec4> verts;
+    for(int z = 0; z < grid.z_size; z++)
+    {
+        for(int y = 0; y < grid.y_size; y++)
+        {
+            for(int x = 0; x < grid.x_size; x++)
+            {
+                map_cell &cell = grid.cells[z*grid.y_size*grid.x_size + y*grid.x_size + x];
+                tile_model &model = set.tiles[cell.type];
+
+                glm::mat4 rotation = glm::eulerAngleYXZ(glm::radians((float)cell.rotation), 0.0f, 0.0f);
+                for(int i=0; i < model.num_verts; i++)
+                {
+                    tile_vert &tvert = model.vert_data[i];
+                    glm::vec4 vert(tvert.x, tvert.y, tvert.z, 1.0f);
+                    vert = rotation*vert;
+                    verts.push_back(vert);
+                }
+            }
+        }
+    }
+
+    GLuint display_list = glGenLists(1);
+
+    glNewList(display_list, GL_COMPILE);
+    glBegin(GL_TRIANGLES);
+    for(size_t i = 0; i < verts.size(); i++)
+    {
+        glVertex3f(verts[i].x, verts[i].y, verts[i].z);
+    }
+    glEnd();
+    glEndList();
+
+    return display_list;
+}
 
 int main()
 {
