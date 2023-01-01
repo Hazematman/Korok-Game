@@ -210,6 +210,10 @@ int main()
     glMatrixMode(GL_PROJECTION);
     glLoadMatrixf(&perspective[0][0]);
 
+    glm::vec3 pos(0.0f, 0.0f, 0.0f);
+
+    const Uint8* state = SDL_GetKeyboardState(NULL);
+
     bool running = true;
     SDL_Event e;
     while(running)
@@ -221,6 +225,28 @@ int main()
                 running = false;
             }
         }
+
+        if(state[SDL_SCANCODE_LEFT])
+        {
+            pos.x -= 1.0f;
+        }
+        else if(state[SDL_SCANCODE_RIGHT])
+        {
+            pos.x += 1.0f;
+        }
+        
+        if(state[SDL_SCANCODE_UP])
+        {
+            pos.z -= 1.0f;
+        }
+        else if(state[SDL_SCANCODE_DOWN])
+        {
+            pos.z += 1.0f;
+        }
+
+        glm::mat4 translate = glm::translate(glm::mat4(1.0f), -1.0f*pos);
+        glMatrixMode(GL_MODELVIEW);
+        glLoadMatrixf(&translate[0][0]);
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
