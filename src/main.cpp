@@ -6,6 +6,7 @@
 #include <GL/gl.h>
 #include <glm/glm.hpp>
 #include <glm/gtx/euler_angles.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 using namespace std;
 
 #define WINDOW_WIDTH 640
@@ -91,14 +92,21 @@ GLuint build_tile_mesh(map_grid &grid, tile_set &set)
             for(int x = 0; x < grid.x_size; x++)
             {
                 map_cell &cell = grid.cells[z*grid.y_size*grid.x_size + y*grid.x_size + x];
+                if(cell.type == -1)
+                {
+                    continue;
+                }
+
                 tile_model &model = set.tiles[cell.type];
 
                 glm::mat4 rotation = glm::eulerAngleYXZ(glm::radians((float)cell.rotation), 0.0f, 0.0f);
+                glm::mat4 translation = glm::translate(glm::mat4(1.0f), glm::vec3((float)x, (float)y-0.5f, (float)-z));
+                glm::mat4 transform = translation*rotation;
                 for(int i=0; i < model.num_verts; i++)
                 {
                     tile_vert &tvert = model.vert_data[i];
                     glm::vec4 vert(tvert.x, tvert.y, tvert.z, 1.0f);
-                    vert = rotation*vert;
+                    vert = transform*vert;
                     verts.push_back(vert);
                 }
             }
@@ -108,6 +116,7 @@ GLuint build_tile_mesh(map_grid &grid, tile_set &set)
     GLuint display_list = glGenLists(1);
 
     glNewList(display_list, GL_COMPILE);
+
     glBegin(GL_TRIANGLES);
     for(size_t i = 0; i < verts.size(); i++)
     {
@@ -116,7 +125,41 @@ GLuint build_tile_mesh(map_grid &grid, tile_set &set)
     glEnd();
     glEndList();
 
+    cout << "Made mesh with " << verts.size() << " verts" << endl;
+
     return display_list;
+}
+
+map_grid *build_map()
+{
+    map_grid *map = new map_grid;
+    map->z_size = 10;
+    map->y_size = 3;
+    map->x_size = 10;
+
+    map->cells = new map_cell[map->z_size*map->y_size*map->x_size];
+
+    for(int z = 0; z < map->z_size; z++)
+    {
+        for(int y = 0; y < map->y_size; y++)
+        {
+            for(int x = 0; x < map->x_size; x++)
+            {
+                map_cell &cell = map->cells[z*map->y_size*map->x_size + y*map->x_size + x];
+                cell.rotation = 0;
+                if(y != 0)
+                {
+                    cell.type = -1;
+                }
+                else
+                {
+                    cell.type = 0;
+                }
+            }
+        }
+    }
+
+    return map;
 }
 
 int main()
@@ -157,6 +200,16 @@ int main()
         return 0;
     }
 
+    map_grid *map = build_map();
+    GLuint map_list = build_tile_mesh(*map, *tiles); 
+
+    glm::mat4 perspective = glm::perspectiveFov(90.0f, (float)WINDOW_WIDTH, (float)WINDOW_HEIGHT, 0.1f, 100.0f);
+
+    glEnable(GL_DEPTH_TEST);
+
+    glMatrixMode(GL_PROJECTION);
+    glLoadMatrixf(&perspective[0][0]);
+
     bool running = true;
     SDL_Event e;
     while(running)
@@ -169,7 +222,11 @@ int main()
             }
         }
 
-        glClear(GL_COLOR_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        glColor3f(1.0f, 0.0f, 0.0f);
+
+        glCallList(map_list);
 
         SDL_GL_SwapWindow(window);
     }

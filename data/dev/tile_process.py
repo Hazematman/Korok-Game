@@ -107,6 +107,7 @@ def main():
     file.write(struct.pack(f"{endianess}I", len(export_objects)))
     
     for obj in export_objects:
+        print(f"Exporting tile {obj.name}")
         obj_data = obj.data.copy()
         
         bm = bmesh.new()
@@ -124,7 +125,7 @@ def main():
                 
         file.write(struct.pack(f"{endianess}I", len(verts)))
         for vert in verts:
-            file.write(struct.pack(f"{endianess}fffff", vert[0], vert[1], vert[2], 0, 0))    
+            file.write(struct.pack(f"{endianess}fffff", vert[0], vert[2], vert[1], 0, 0))    
         
     file.close()
         
