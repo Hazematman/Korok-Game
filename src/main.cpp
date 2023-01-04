@@ -162,6 +162,67 @@ map_grid *build_map()
     return map;
 }
 
+float cube_verts[] =
+{
+    // Back face
+    -1.0f, -1.0f, -1.0f,
+     1.0f, -1.0f, -1.0f,
+     1.0f,  1.0f, -1.0f,
+    -1.0f, -1.0f, -1.0f,
+     1.0f,  1.0f, -1.0f,
+    -1.0f,  1.0f, -1.0f,
+
+    // Front face
+    -1.0f, -1.0f,  1.0f,
+     1.0f, -1.0f,  1.0f,
+     1.0f,  1.0f,  1.0f,
+    -1.0f, -1.0f,  1.0f,
+     1.0f,  1.0f,  1.0f,
+    -1.0f,  1.0f,  1.0f,
+
+    // Right face
+     1.0f, -1.0f, -1.0f,
+     1.0f, -1.0f,  1.0f,
+     1.0f,  1.0f,  1.0f,
+     1.0f, -1.0f, -1.0f,
+     1.0f,  1.0f,  1.0f,
+     1.0f,  1.0f, -1.0f, 
+
+    // Left face
+    -1.0f, -1.0f, -1.0f,
+    -1.0f, -1.0f,  1.0f,
+    -1.0f,  1.0f,  1.0f,
+    -1.0f, -1.0f, -1.0f,
+    -1.0f,  1.0f,  1.0f,
+    -1.0f,  1.0f, -1.0f, 
+
+    // Top face
+    -1.0f,  1.0f, -1.0f,
+     1.0f,  1.0f, -1.0f,
+     1.0f,  1.0f,  1.0f,
+    -1.0f,  1.0f, -1.0f,
+     1.0f,  1.0f,  1.0f,
+    -1.0f,  1.0f,  1.0f,
+
+    // Top face
+    -1.0f, -1.0f, -1.0f,
+     1.0f, -1.0f, -1.0f,
+     1.0f, -1.0f,  1.0f,
+    -1.0f, -1.0f, -1.0f,
+     1.0f, -1.0f,  1.0f,
+    -1.0f, -1.0f,  1.0f,
+};
+
+void draw_cube()
+{
+    glBegin(GL_TRIANGLES);
+    for(size_t i = 0; i < sizeof(cube_verts)/sizeof(cube_verts[0]); i += 3)
+    {
+        glVertex3f(cube_verts[i], cube_verts[i+1], cube_verts[i+2]);
+    }
+    glEnd();
+}
+
 int main()
 {
     if(SDL_Init(SDL_INIT_EVERYTHING) == -1)
@@ -250,8 +311,10 @@ int main()
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        glColor3f(1.0f, 0.0f, 0.0f);
+        glColor3f(0.0f, 1.0f, 0.0f);
+        draw_cube();
 
+        glColor3f(1.0f, 0.0f, 0.0f);
         glCallList(map_list);
 
         SDL_GL_SwapWindow(window);
