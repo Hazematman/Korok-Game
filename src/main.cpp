@@ -7,6 +7,10 @@
 #include <glm/glm.hpp>
 #include <glm/gtx/euler_angles.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <bullet/btBulletDynamicsCommon.h>
+#include <bullet/BulletDynamics/Character/btKinematicCharacterController.h>
+#include <bullet/BulletCollision/CollisionDispatch/btGhostObject.h>
+#include <bullet/BulletCollision/Gimpact/btGImpactShape.h>
 using namespace std;
 
 #define WINDOW_WIDTH 640
@@ -82,9 +86,8 @@ struct map_grid
     map_cell *cells;
 };
 
-GLuint build_tile_mesh(map_grid &grid, tile_set &set)
+GLuint build_tile_mesh(map_grid &grid, tile_set &set, vector<glm::vec3> &verts)
 {
-    vector<glm::vec4> verts;
     for(int z = 0; z < grid.z_size; z++)
     {
         for(int y = 0; y < grid.y_size; y++)
@@ -107,7 +110,7 @@ GLuint build_tile_mesh(map_grid &grid, tile_set &set)
                     tile_vert &tvert = model.vert_data[i];
                     glm::vec4 vert(tvert.x, tvert.y, tvert.z, 1.0f);
                     vert = transform*vert;
-                    verts.push_back(vert);
+                    verts.push_back(glm::vec3(vert));
                 }
             }
         }
@@ -262,7 +265,59 @@ int main()
     }
 
     map_grid *map = build_map();
-    GLuint map_list = build_tile_mesh(*map, *tiles); 
+    vector<glm::vec3> terrain_verts;
+    GLuint map_list = build_tile_mesh(*map, *tiles, terrain_verts); 
+
+    // Initalize physics
+    btDefaultCollisionConstructionInfo constructionInfo = btDefaultCollisionConstructionInfo();
+    constructionInfo.m_defaultMaxCollisionAlgorithmPoolSize = 512;
+    constructionInfo.m_defaultMaxPersistentManifoldPoolSize = 512;
+    btDefaultCollisionConfiguration* collisionConfiguration = new btDefaultCollisionConfiguration(constructionInfo);
+    btCollisionDispatcher* dispatcher = new btCollisionDispatcher(collisionConfiguration);
+    btBroadphaseInterface* overlappingPairCache = new btDbvtBroadphase();
+    btSequentialImpulseConstraintSolver* solver = new btSequentialImpulseConstraintSolver;
+	btDiscreteDynamicsWorld* dynamicsWorld = new btDiscreteDynamicsWorld(dispatcher, overlappingPairCache, solver, collisionConfiguration);
+
+    dynamicsWorld->setGravity(btVector3(0, -20, 0));dynamicsWorld->setGravity(btVector3(0, -20, 0));
+
+    btTriangleMesh *trimesh = new btTriangleMesh();
+    btVector3 verts[3];
+    // Build collision mesh for world
+    for(size_t i = 0; i < terrain_verts.size(); i++)
+    {
+        glm::vec3 &vert = terrain_verts[i];
+        size_t tri_index = i % 3;
+        verts[tri_index] = btVector3(vert.x, vert.y, vert.z);
+
+        if(tri_index == 2)
+        {
+            trimesh->addTriangle(verts[0], verts[1], verts[2]);
+        }
+    }
+
+    {
+        btGImpactMeshShape *gimpact = new btGImpactMeshShape(trimesh);
+        gimpact->updateBound();
+        btCollisionShape *col_shape = gimpact;
+        btDefaultMotionState *motion_state = new btDefaultMotionState(btTransform(btQuaternion(0,0,0,1), btVector3(0.0f, 0.0f, 0.0f)));
+        btVector3 inertia;
+        col_shape->calculateLocalInertia(0, inertia);
+        btRigidBody::btRigidBodyConstructionInfo ci(0, motion_state, col_shape, inertia);
+        btRigidBody *body = new btRigidBody(ci);
+
+        dynamicsWorld->addRigidBody(body);
+    }
+
+    btVector3 extents(1.0f, 1.0f, 1.0f);
+    btVector3 origin(2.0f, 100.0f, -5.0f);
+    float mass = 1.0f;
+    btCollisionShape *col_shape = new btBoxShape(extents);
+    btDefaultMotionState *motion_state = new btDefaultMotionState(btTransform(btQuaternion(0,0,0,1), origin));
+    btVector3 inertia;
+    col_shape->calculateLocalInertia(mass, inertia);
+    btRigidBody::btRigidBodyConstructionInfo ci(mass, motion_state, col_shape, inertia);
+    btRigidBody *body = new btRigidBody(ci);
+    dynamicsWorld->addRigidBody(body);
 
     glm::mat4 perspective = glm::perspectiveFov(90.0f, (float)WINDOW_WIDTH, (float)WINDOW_HEIGHT, 0.1f, 100.0f);
 
@@ -305,14 +360,25 @@ int main()
             pos.z += 1.0f;
         }
 
+        dynamicsWorld->stepSimulation(1.0f / 30.f, 10);
+
         glm::mat4 translate = glm::translate(glm::mat4(1.0f), -1.0f*pos);
         glMatrixMode(GL_MODELVIEW);
         glLoadMatrixf(&translate[0][0]);
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        glColor3f(0.0f, 1.0f, 0.0f);
-        draw_cube();
+        {
+            btTransform trans = body->getWorldTransform();
+
+            glm::mat4 t_mat(1.0f);
+            trans.getOpenGLMatrix(&t_mat[0][0]);
+            glPushMatrix();
+            glMultMatrixf(&t_mat[0][0]);
+            glColor3f(0.0f, 1.0f, 0.0f);
+            draw_cube();
+            glPopMatrix();
+        }
 
         glColor3f(1.0f, 0.0f, 0.0f);
         glCallList(map_list);
