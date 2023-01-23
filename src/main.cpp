@@ -264,8 +264,7 @@ void CharacterController::get_camera_matrix(glm::mat4 &view_mat)
     btTransform trans = ghost->getWorldTransform();
     btVector3 position = trans.getOrigin();
 
-    trans.setOrigin(btVector3{0.0f, 0.0f, 0.0f});
-    btVector3 forward = trans(btVector3{0.0f, 0.0f, 1.0f});
+    btVector3 forward = trans.getBasis().getColumn(2);
 
     btVector3 camera_pos = position + btVector3{0.0f, 3.0f, 0.0f} - 5.0f*forward;
     glm::vec3 cam_pos_glm(camera_pos[0], camera_pos[1], camera_pos[2]);
@@ -311,8 +310,7 @@ void CharacterController::update(float dt)
         direction[2] = 1.0f;
     }
 
-    trans.setOrigin(btVector3{0.0f, 0.0f, 0.0f});
-    btVector3 walk_direction = -direction[2] * trans(btVector3{0.0f, 0.0f, 1.0f});
+    btVector3 walk_direction = -direction[2] * trans.getBasis().getColumn(2);
     cout << "Walk: " << walk_direction[0] << " " << walk_direction[1] << " " << walk_direction[2] << endl;
     con->setWalkDirection(dt*speed*walk_direction);
 }
@@ -331,10 +329,9 @@ void CharacterController::draw()
 
     glPopMatrix();
 
-    trans.setOrigin(btVector3{0, 0, 0});
-    btVector3 new_pos = pos + 2.0f*trans(btVector3{1,0,0});
-    btVector3 new_pos2 = pos + 2.0f*trans(btVector3{0,1,0});
-    btVector3 new_pos3 = pos + 2.0f*trans(btVector3{0,0,1});
+    btVector3 new_pos = pos + 2.0f*trans.getBasis().getColumn(0);
+    btVector3 new_pos2 = pos + 2.0f*trans.getBasis().getColumn(1);
+    btVector3 new_pos3 = pos + 2.0f*trans.getBasis().getColumn(2);
 
     glBegin(GL_LINES);
         glColor3f(1.0f, 1.0f, 0.0f);
