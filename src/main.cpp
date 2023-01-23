@@ -249,7 +249,7 @@ CharacterController::CharacterController(btDiscreteDynamicsWorld *dynamics_world
     ghost = new btPairCachingGhostObject();
     shape = new btBoxShape(btVector3(1.0f, 1.0f, 1.0f));
 
-    con = new btKinematicCharacterController(ghost, shape, btScalar(1.0f));
+    con = new btKinematicCharacterController(ghost, shape, btScalar(1.0f), btVector3(0.0f, 1.0f, 0.0f));
 
     con->setGravity(btVector3(0.0f, -9.81f, 0.0f));
 
@@ -268,7 +268,8 @@ void CharacterController::get_camera_matrix(glm::mat4 &view_mat)
     btVector3 forward = trans.getBasis()[2];
     btVector3 position = trans.getOrigin();
 
-    btVector3 camera_pos = position + btVector3(0.0f, 2.0f, 0.0f) + 5.0f*forward;
+    //btVector3 camera_pos = position + btVector3(0.0f, 2.0f, 0.0f) + 5.0f*forward;
+    btVector3 camera_pos = btVector3(0.0f, 3.0f, 0.0f);
     glm::vec3 cam_pos_glm(camera_pos[0], camera_pos[1], camera_pos[2]);
     glm::vec3 target_pos(position[0], position[1], position[2]);
     view_mat = glm::lookAt(cam_pos_glm, target_pos, glm::vec3(0.0f, 1.0f, 0.0f)); 
@@ -280,8 +281,6 @@ void CharacterController::update(float dt)
     float turn_speed = 1.0f;
     btTransform &trans = ghost->getWorldTransform();
     btVector3 direction; 
-    btVector3 forward = trans.getBasis()[2];
-    btVector3 sideways = trans.getBasis()[0];
 
     float turn_direction = 0.0f;
 
@@ -295,9 +294,15 @@ void CharacterController::update(float dt)
         turn_direction = 1.0f;
     }
 
-    btMatrix3x3 orientation = trans.getBasis();
+    btTransform rot = btTransform(btQuaternion(btVector3(0.0f, 1.0f, 0.0f), dt*turn_direction*turn_speed));
+    btTransform new_trans = ghost->getWorldTransform() * rot;
+    ghost->setWorldTransform(new_trans);
+#if 0
+    btMatrix3x3 orientation = ghost->getWorldTransform().getBasis();
     orientation *= btMatrix3x3(btQuaternion(btVector3(0.0f, 1.0f, 0.0f), dt*turn_direction*turn_speed));
-    trans.setBasis(orientation);
+    ghost->getWorldTransform().setBasis(orientation);
+    ghost->setWorldTransform(new_trans);
+#endif
     
     if(state[SDL_SCANCODE_UP])
     {
@@ -308,10 +313,8 @@ void CharacterController::update(float dt)
         direction[2] = 1.0f;
     }
 
-    btVector3 walk_direction = direction[2]*forward + direction[0]*sideways;
+    btVector3 walk_direction = -direction[2] * trans.getBasis()[2];
     cout << "Walk: " << walk_direction[0] << " " << walk_direction[1] << " " << walk_direction[2] << endl;
-    cout << "Forward: " << forward[0] << " " << forward[1] << " " << forward[2] << endl;
-    //walk_direction.normalize();
     con->setWalkDirection(dt*speed*walk_direction);
 }
 
@@ -326,7 +329,16 @@ void CharacterController::draw()
     glMultMatrixf(&t_mat[0][0]);
     glColor3f(0.0f, 0.0f, 1.0f);
     draw_cube();
+
     glPopMatrix();
+
+    btVector3 new_pos = pos + 2.0f*trans.getBasis()[2];
+
+    glColor3f(1.0f, 1.0f, 0.0f);
+    glBegin(GL_LINES);
+        glVertex3f(pos[0], pos[1], pos[2]);
+        glVertex3f(new_pos[0], new_pos[1], new_pos[2]);
+    glEnd(); 
 }
 
 int main()
