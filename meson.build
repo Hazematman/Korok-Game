@@ -4,5 +4,9 @@ sdl2 = dependency('SDL2')
 opengl = dependency('OpenGL')
 bullet = dependency('bullet')
 
-srcs = ['src/main.cpp']
+srcs = [
+    'src/main.cpp',
+    'src/model.cpp',
+    'src/gameobject.cpp',
+    ]
 executable('korok_game', srcs, dependencies : [sdl2, opengl, bullet])

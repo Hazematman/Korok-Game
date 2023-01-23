@@ -13,8 +13,8 @@
 #include <bullet/BulletCollision/Gimpact/btGImpactShape.h>
 using namespace std;
 
-#define WINDOW_WIDTH 640
-#define WINDOW_HEIGHT 480
+#define WINDOW_WIDTH 1024
+#define WINDOW_HEIGHT 768
 
 struct tile_vert
 {
@@ -226,6 +226,109 @@ void draw_cube()
     glEnd();
 }
 
+class CharacterController
+{
+private:
+    btPairCachingGhostObject *ghost;
+    btBoxShape *shape;
+    btKinematicCharacterController *con;
+public:
+    CharacterController(btDiscreteDynamicsWorld *dynamics_world);
+
+    void get_camera_matrix(glm::mat4 &view_mat);
+
+    void update(float dt);
+    void draw();
+};
+
+CharacterController::CharacterController(btDiscreteDynamicsWorld *dynamics_world)
+{
+    btTransform start;
+    start.setIdentity();
+    start.setOrigin(btVector3(5.0f, 5.0f, -5.0f));
+    ghost = new btPairCachingGhostObject();
+    shape = new btBoxShape(btVector3(1.0f, 1.0f, 1.0f));
+
+    con = new btKinematicCharacterController(ghost, shape, btScalar(1.0f));
+
+    con->setGravity(btVector3(0.0f, -9.81f, 0.0f));
+
+    ghost->setCollisionShape(shape);
+    ghost->setWorldTransform(start);
+    ghost->setCollisionFlags(btCollisionObject::CF_CHARACTER_OBJECT);
+    
+
+    dynamics_world->addCollisionObject(ghost, btBroadphaseProxy::CharacterFilter, btBroadphaseProxy::StaticFilter|btBroadphaseProxy::DefaultFilter);
+    dynamics_world->addAction(con);
+}
+
+void CharacterController::get_camera_matrix(glm::mat4 &view_mat)
+{
+    btTransform &trans = ghost->getWorldTransform();
+    btVector3 forward = trans.getBasis()[2];
+    btVector3 position = trans.getOrigin();
+
+    btVector3 camera_pos = position + btVector3(0.0f, 2.0f, 0.0f) + 5.0f*forward;
+    glm::vec3 cam_pos_glm(camera_pos[0], camera_pos[1], camera_pos[2]);
+    glm::vec3 target_pos(position[0], position[1], position[2]);
+    view_mat = glm::lookAt(cam_pos_glm, target_pos, glm::vec3(0.0f, 1.0f, 0.0f)); 
+}
+
+void CharacterController::update(float dt)
+{
+    float speed = 1.0f;
+    float turn_speed = 1.0f;
+    btTransform &trans = ghost->getWorldTransform();
+    btVector3 direction; 
+    btVector3 forward = trans.getBasis()[2];
+    btVector3 sideways = trans.getBasis()[0];
+
+    float turn_direction = 0.0f;
+
+    const uint8_t *state = SDL_GetKeyboardState(NULL);
+    if(state[SDL_SCANCODE_LEFT])
+    {
+        turn_direction = -1.0f;
+    }
+    else if(state[SDL_SCANCODE_RIGHT])
+    {
+        turn_direction = 1.0f;
+    }
+
+    btMatrix3x3 orientation = trans.getBasis();
+    orientation *= btMatrix3x3(btQuaternion(btVector3(0.0f, 1.0f, 0.0f), dt*turn_direction*turn_speed));
+    trans.setBasis(orientation);
+    
+    if(state[SDL_SCANCODE_UP])
+    {
+        direction[2] = -1.0f;
+    }
+    else if(state[SDL_SCANCODE_DOWN])
+    {
+        direction[2] = 1.0f;
+    }
+
+    btVector3 walk_direction = direction[2]*forward + direction[0]*sideways;
+    cout << "Walk: " << walk_direction[0] << " " << walk_direction[1] << " " << walk_direction[2] << endl;
+    cout << "Forward: " << forward[0] << " " << forward[1] << " " << forward[2] << endl;
+    //walk_direction.normalize();
+    con->setWalkDirection(dt*speed*walk_direction);
+}
+
+void CharacterController::draw()
+{
+    btTransform trans = ghost->getWorldTransform();
+    btVector3 pos = trans.getOrigin();
+    cout << pos[0] << " " << pos[1] << " " << pos[2] << endl;
+    glm::mat4 t_mat(1.0f);
+    trans.getOpenGLMatrix(&t_mat[0][0]);
+    glPushMatrix();
+    glMultMatrixf(&t_mat[0][0]);
+    glColor3f(0.0f, 0.0f, 1.0f);
+    draw_cube();
+    glPopMatrix();
+}
+
 int main()
 {
     if(SDL_Init(SDL_INIT_EVERYTHING) == -1)
@@ -275,6 +378,7 @@ int main()
     btDefaultCollisionConfiguration* collisionConfiguration = new btDefaultCollisionConfiguration(constructionInfo);
     btCollisionDispatcher* dispatcher = new btCollisionDispatcher(collisionConfiguration);
     btBroadphaseInterface* overlappingPairCache = new btDbvtBroadphase();
+    overlappingPairCache->getOverlappingPairCache()->setInternalGhostPairCallback(new btGhostPairCallback());
     btSequentialImpulseConstraintSolver* solver = new btSequentialImpulseConstraintSolver;
 	btDiscreteDynamicsWorld* dynamicsWorld = new btDiscreteDynamicsWorld(dispatcher, overlappingPairCache, solver, collisionConfiguration);
 
@@ -309,7 +413,7 @@ int main()
     }
 
     btVector3 extents(1.0f, 1.0f, 1.0f);
-    btVector3 origin(2.0f, 100.0f, -5.0f);
+    btVector3 origin(3.0f, 100.0f, -5.0f);
     float mass = 1.0f;
     btCollisionShape *col_shape = new btBoxShape(extents);
     btDefaultMotionState *motion_state = new btDefaultMotionState(btTransform(btQuaternion(0,0,0,1), origin));
@@ -318,6 +422,8 @@ int main()
     btRigidBody::btRigidBodyConstructionInfo ci(mass, motion_state, col_shape, inertia);
     btRigidBody *body = new btRigidBody(ci);
     dynamicsWorld->addRigidBody(body);
+
+    CharacterController player(dynamicsWorld);
 
     glm::mat4 perspective = glm::perspectiveFov(90.0f, (float)WINDOW_WIDTH, (float)WINDOW_HEIGHT, 0.1f, 100.0f);
 
@@ -332,6 +438,9 @@ int main()
 
     bool running = true;
     SDL_Event e;
+    uint64_t start = SDL_GetTicks64();
+    uint64_t end = start;
+    float dt = 1.0f / 60.0f;
     while(running)
     {
         while(SDL_PollEvent(&e))
@@ -342,29 +451,14 @@ int main()
             }
         }
 
-        if(state[SDL_SCANCODE_LEFT])
-        {
-            pos.x -= 1.0f;
-        }
-        else if(state[SDL_SCANCODE_RIGHT])
-        {
-            pos.x += 1.0f;
-        }
-        
-        if(state[SDL_SCANCODE_UP])
-        {
-            pos.z -= 1.0f;
-        }
-        else if(state[SDL_SCANCODE_DOWN])
-        {
-            pos.z += 1.0f;
-        }
+        player.update(dt);
 
         dynamicsWorld->stepSimulation(1.0f / 30.f, 10);
 
-        glm::mat4 translate = glm::translate(glm::mat4(1.0f), -1.0f*pos);
+        glm::mat4 look_at;
+        player.get_camera_matrix(look_at);
         glMatrixMode(GL_MODELVIEW);
-        glLoadMatrixf(&translate[0][0]);
+        glLoadMatrixf(&look_at[0][0]);
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -380,10 +474,15 @@ int main()
             glPopMatrix();
         }
 
+        player.draw();
+
         glColor3f(1.0f, 0.0f, 0.0f);
         glCallList(map_list);
 
         SDL_GL_SwapWindow(window);
+        end = SDL_GetTicks64();
+        dt = (float)(end - start)/1000.0f;
+        start = end;
     }
 
     return 0;
