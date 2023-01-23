@@ -243,18 +243,15 @@ public:
 
 CharacterController::CharacterController(btDiscreteDynamicsWorld *dynamics_world)
 {
-    btTransform start;
-    start.setIdentity();
-    start.setOrigin(btVector3(5.0f, 5.0f, -5.0f));
     ghost = new btPairCachingGhostObject();
-    shape = new btBoxShape(btVector3(1.0f, 1.0f, 1.0f));
+    shape = new btBoxShape(btVector3{1.0f, 1.0f, 1.0f});
 
-    con = new btKinematicCharacterController(ghost, shape, btScalar(1.0f), btVector3(0.0f, 1.0f, 0.0f));
+    con = new btKinematicCharacterController(ghost, shape, btScalar(1.0f), btVector3{0.0f, 1.0f, 0.0f});
 
-    con->setGravity(btVector3(0.0f, -9.81f, 0.0f));
+    con->warp(btVector3{5.0f, 5.0f, -5.0f});
 
     ghost->setCollisionShape(shape);
-    ghost->setWorldTransform(start);
+    //ghost->setWorldTransform(start);
     ghost->setCollisionFlags(btCollisionObject::CF_CHARACTER_OBJECT);
     
 
@@ -264,12 +261,13 @@ CharacterController::CharacterController(btDiscreteDynamicsWorld *dynamics_world
 
 void CharacterController::get_camera_matrix(glm::mat4 &view_mat)
 {
-    btTransform &trans = ghost->getWorldTransform();
-    btVector3 forward = trans.getBasis()[2];
+    btTransform trans = ghost->getWorldTransform();
     btVector3 position = trans.getOrigin();
 
-    //btVector3 camera_pos = position + btVector3(0.0f, 2.0f, 0.0f) + 5.0f*forward;
-    btVector3 camera_pos = btVector3(0.0f, 3.0f, 0.0f);
+    trans.setOrigin(btVector3{0.0f, 0.0f, 0.0f});
+    btVector3 forward = trans(btVector3{0.0f, 0.0f, 1.0f});
+
+    btVector3 camera_pos = position + btVector3{0.0f, 3.0f, 0.0f} - 5.0f*forward;
     glm::vec3 cam_pos_glm(camera_pos[0], camera_pos[1], camera_pos[2]);
     glm::vec3 target_pos(position[0], position[1], position[2]);
     view_mat = glm::lookAt(cam_pos_glm, target_pos, glm::vec3(0.0f, 1.0f, 0.0f)); 
@@ -279,7 +277,7 @@ void CharacterController::update(float dt)
 {
     float speed = 1.0f;
     float turn_speed = 1.0f;
-    btTransform &trans = ghost->getWorldTransform();
+    btTransform trans = ghost->getWorldTransform();
     btVector3 direction; 
 
     float turn_direction = 0.0f;
@@ -287,14 +285,14 @@ void CharacterController::update(float dt)
     const uint8_t *state = SDL_GetKeyboardState(NULL);
     if(state[SDL_SCANCODE_LEFT])
     {
-        turn_direction = -1.0f;
+        turn_direction = 1.0f;
     }
     else if(state[SDL_SCANCODE_RIGHT])
     {
-        turn_direction = 1.0f;
+        turn_direction = -1.0f;
     }
 
-    btTransform rot = btTransform(btQuaternion(btVector3(0.0f, 1.0f, 0.0f), dt*turn_direction*turn_speed));
+    btTransform rot = btTransform(btQuaternion(btVector3{0.0f, 1.0f, 0.0f}, dt*turn_direction*turn_speed));
     btTransform new_trans = ghost->getWorldTransform() * rot;
     ghost->setWorldTransform(new_trans);
 #if 0
@@ -313,7 +311,8 @@ void CharacterController::update(float dt)
         direction[2] = 1.0f;
     }
 
-    btVector3 walk_direction = -direction[2] * trans.getBasis()[2];
+    trans.setOrigin(btVector3{0.0f, 0.0f, 0.0f});
+    btVector3 walk_direction = -direction[2] * trans(btVector3{0.0f, 0.0f, 1.0f});
     cout << "Walk: " << walk_direction[0] << " " << walk_direction[1] << " " << walk_direction[2] << endl;
     con->setWalkDirection(dt*speed*walk_direction);
 }
@@ -322,22 +321,33 @@ void CharacterController::draw()
 {
     btTransform trans = ghost->getWorldTransform();
     btVector3 pos = trans.getOrigin();
-    cout << pos[0] << " " << pos[1] << " " << pos[2] << endl;
-    glm::mat4 t_mat(1.0f);
-    trans.getOpenGLMatrix(&t_mat[0][0]);
+    cout << "Player: " << pos[0] << " " << pos[1] << " " << pos[2] << endl;
+    float mat[16];
+    trans.getOpenGLMatrix(mat);
     glPushMatrix();
-    glMultMatrixf(&t_mat[0][0]);
+    glMultMatrixf(mat);
     glColor3f(0.0f, 0.0f, 1.0f);
     draw_cube();
 
     glPopMatrix();
 
-    btVector3 new_pos = pos + 2.0f*trans.getBasis()[2];
+    trans.setOrigin(btVector3{0, 0, 0});
+    btVector3 new_pos = pos + 2.0f*trans(btVector3{1,0,0});
+    btVector3 new_pos2 = pos + 2.0f*trans(btVector3{0,1,0});
+    btVector3 new_pos3 = pos + 2.0f*trans(btVector3{0,0,1});
 
-    glColor3f(1.0f, 1.0f, 0.0f);
     glBegin(GL_LINES);
+        glColor3f(1.0f, 1.0f, 0.0f);
         glVertex3f(pos[0], pos[1], pos[2]);
         glVertex3f(new_pos[0], new_pos[1], new_pos[2]);
+
+        glColor3f(0.0f, 1.0f, 1.0f);
+        glVertex3f(pos[0], pos[1], pos[2]);
+        glVertex3f(new_pos2[0], new_pos2[1], new_pos2[2]);
+
+        glColor3f(1.0f, 0.0f, 1.0f);
+        glVertex3f(pos[0], pos[1], pos[2]);
+        glVertex3f(new_pos3[0], new_pos3[1], new_pos3[2]);
     glEnd(); 
 }
 
@@ -394,7 +404,7 @@ int main()
     btSequentialImpulseConstraintSolver* solver = new btSequentialImpulseConstraintSolver;
 	btDiscreteDynamicsWorld* dynamicsWorld = new btDiscreteDynamicsWorld(dispatcher, overlappingPairCache, solver, collisionConfiguration);
 
-    dynamicsWorld->setGravity(btVector3(0, -20, 0));dynamicsWorld->setGravity(btVector3(0, -20, 0));
+    dynamicsWorld->setGravity(btVector3{0, -20, 0});dynamicsWorld->setGravity(btVector3{0, -20, 0});
 
     btTriangleMesh *trimesh = new btTriangleMesh();
     btVector3 verts[3];
@@ -403,7 +413,7 @@ int main()
     {
         glm::vec3 &vert = terrain_verts[i];
         size_t tri_index = i % 3;
-        verts[tri_index] = btVector3(vert.x, vert.y, vert.z);
+        verts[tri_index] = btVector3{vert.x, vert.y, vert.z};
 
         if(tri_index == 2)
         {
@@ -415,7 +425,7 @@ int main()
         btGImpactMeshShape *gimpact = new btGImpactMeshShape(trimesh);
         gimpact->updateBound();
         btCollisionShape *col_shape = gimpact;
-        btDefaultMotionState *motion_state = new btDefaultMotionState(btTransform(btQuaternion(0,0,0,1), btVector3(0.0f, 0.0f, 0.0f)));
+        btDefaultMotionState *motion_state = new btDefaultMotionState(btTransform(btQuaternion(0,0,0,1), btVector3{0.0f, 0.0f, 0.0f}));
         btVector3 inertia;
         col_shape->calculateLocalInertia(0, inertia);
         btRigidBody::btRigidBodyConstructionInfo ci(0, motion_state, col_shape, inertia);
