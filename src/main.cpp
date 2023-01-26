@@ -333,7 +333,7 @@ void CharacterController::update(float dt)
     float speed = 1.0f;
     float turn_speed = 1.0f;
     btTransform trans = ghost->getWorldTransform();
-    btVector3 direction; 
+    btVector3 direction{0,0,0}; 
 
     float turn_direction = 0.0f;
 
@@ -454,7 +454,7 @@ int main()
     constructionInfo.m_defaultMaxPersistentManifoldPoolSize = 512;
     btDefaultCollisionConfiguration* collisionConfiguration = new btDefaultCollisionConfiguration(constructionInfo);
     btCollisionDispatcher* dispatcher = new btCollisionDispatcher(collisionConfiguration);
-    btBroadphaseInterface* overlappingPairCache = new btDbvtBroadphase();
+    btBroadphaseInterface* overlappingPairCache = new btAxisSweep3(btVector3{-100,-100,-100}, btVector3{100,100,100});
     overlappingPairCache->getOverlappingPairCache()->setInternalGhostPairCallback(new btGhostPairCallback());
     btSequentialImpulseConstraintSolver* solver = new btSequentialImpulseConstraintSolver;
 	btDiscreteDynamicsWorld* dynamicsWorld = new btDiscreteDynamicsWorld(dispatcher, overlappingPairCache, solver, collisionConfiguration);
@@ -530,7 +530,7 @@ int main()
 
         player.update(dt);
 
-        dynamicsWorld->stepSimulation(1.0f / 30.f, 10);
+        dynamicsWorld->stepSimulation(dt, 2);
 
         glm::mat4 look_at;
         player.get_camera_matrix(look_at);
