@@ -11,10 +11,15 @@
 #include <bullet/BulletDynamics/Character/btKinematicCharacterController.h>
 #include <bullet/BulletCollision/CollisionDispatch/btGhostObject.h>
 #include <bullet/BulletCollision/Gimpact/btGImpactShape.h>
+
+#define JC_VORONOI_IMPLEMENTATION
+#include <jc_voronoi.h>
 using namespace std;
 
 #define WINDOW_WIDTH 1024
 #define WINDOW_HEIGHT 768
+
+#define NUM_POINTS 128
 
 struct tile_vert
 {
@@ -163,6 +168,57 @@ map_grid *build_map()
     }
 
     return map;
+}
+
+#define MAX_RELAXATIONS 2
+
+/* Code copied from jcash voronoi example application */
+/* https://github.com/JCash/voronoi/blob/dev/src/main.c */
+static void relax_points(const jcv_diagram* diagram, jcv_point* points)
+{
+    const jcv_site* sites = jcv_diagram_get_sites(diagram);
+    for( int i = 0; i < diagram->numsites; ++i )
+    {
+        const jcv_site* site = &sites[i];
+        jcv_point sum = site->p;
+        int count = 1;
+
+        const jcv_graphedge* edge = site->edges;
+
+        while( edge )
+        {
+            sum.x += edge->pos[0].x;
+            sum.y += edge->pos[0].y;
+            ++count;
+            edge = edge->next;
+        }
+
+        points[site->index].x = sum.x / (jcv_real)count;
+        points[site->index].y = sum.y / (jcv_real)count;
+    }
+}
+
+jcv_point points[NUM_POINTS];
+void generate_voronoi_map()
+{
+    srand(0);
+
+    for(int i = 0; i < NUM_POINTS; i++)
+    {
+        points[i].x = (float)(rand() / (float)RAND_MAX) * 16.0f;
+        points[i].y = (float)(rand() / (float)RAND_MAX) * 16.0f;
+    }
+
+    for(int i = 0; i < MAX_RELAXATIONS; i++)
+    {
+        jcv_diagram diagram = {0};
+        jcv_diagram_generate(NUM_POINTS, (const jcv_point*)points, NULL, NULL, &diagram);
+        relax_points(&diagram, points);
+        jcv_diagram_free(&diagram);
+    }
+
+    jcv_diagram diagram = {0};
+    jcv_diagram_generate(NUM_POINTS, (const jcv_point*)points, NULL, NULL, &diagram);
 }
 
 float cube_verts[] =
@@ -385,6 +441,8 @@ int main()
         cout << "Failed to load tiles" << endl;
         return 0;
     }
+
+    generate_voronoi_map();
 
     map_grid *map = build_map();
     vector<glm::vec3> terrain_verts;
