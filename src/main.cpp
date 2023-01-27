@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <random>
 #include <stdint.h>
 #include <SDL2/SDL.h>
 #include <GL/gl.h>
@@ -198,8 +199,30 @@ static void relax_points(const jcv_diagram* diagram, jcv_point* points)
     }
 }
 
+enum cell_type
+{
+    CELL_WATER,
+    CELL_LAND,
+};
+
+struct cell_info
+{
+    cell_type type;
+};
+
+bool is_corner(jcv_point point, jcv_point min, jcv_point max)
+{
+    return point.x == min.x
+        || point.x == max.x
+        || point.y == min.y
+        || point.y == max.y;
+}
+
 jcv_point points[NUM_POINTS];
-void generate_voronoi_map()
+cell_info points_info[NUM_POINTS];
+/* Generate terrain based on the algorithm described in this blog post */
+/* http://www-cs-students.stanford.edu/~amitp/game-programming/polygon-map-generation/ */
+GLuint generate_voronoi_map()
 {
     srand(0);
 
@@ -219,6 +242,95 @@ void generate_voronoi_map()
 
     jcv_diagram diagram = {0};
     jcv_diagram_generate(NUM_POINTS, (const jcv_point*)points, NULL, NULL, &diagram);
+
+    GLuint display_list = glGenLists(1);
+    glNewList(display_list, GL_COMPILE);
+    glBegin(GL_TRIANGLES);
+
+    random_device rd;
+    mt19937 gen(rd());
+    uniform_int_distribution<> distrib1(1, 6);
+    uniform_real_distribution<float> distrib2(0.0f, 2.0f*M_PI);
+    uniform_real_distribution<float> distrib3(0.2f, 0.7f);
+    int bumps = distrib1(gen);
+    float start_angle = distrib2(gen);
+    float dip_angle = distrib2(gen);
+    float dip_width = distrib3(gen);
+    float island_factor = 1.07f;
+
+    const jcv_site *sites = jcv_diagram_get_sites(&diagram);
+    for(int i = 0; i < NUM_POINTS; i++)
+    {
+        glm::vec2 p(points[i].x/16.0f - 0.5f, points[i].y/16.0f - 0.5f);
+        float angle = atan2f(p.y, p.x);
+        float length = 0.5f * (glm::max(glm::abs(p.x), glm::abs(p.y)) + glm::length(p));
+
+        float r1 = 0.5f + 0.4f * sinf(start_angle + bumps*angle + cosf((bumps+3)*angle));
+        float r2 = 0.7f - 0.2f * sinf(start_angle + bumps*angle - sinf((bumps+2)*angle));
+
+        if(glm::abs(angle - dip_angle) < dip_width
+                || glm::abs(angle - dip_angle + 2.0f*M_PI) < dip_width
+                || glm::abs(angle - dip_angle - 2.0f*M_PI) < dip_width)
+        {
+            r1 = r2 = 0.2f;
+        }
+
+        bool is_inside = (length < r1 || (length > r1*island_factor && length < r2));
+
+        if(is_inside)
+        {
+            points_info[i].type = CELL_LAND;
+        }
+        else
+        {
+            points_info[i].type = CELL_WATER;
+        }
+    }
+
+    for(int i = 0; i < diagram.numsites; i++)
+    {
+        const jcv_site *site = &sites[i];
+        cell_info &cell = points_info[i];
+
+        const jcv_graphedge *e = site->edges;
+        while(e)
+        {
+            if(is_corner(e->pos[0], diagram.min, diagram.max)
+                    || is_corner(e->pos[1], diagram.min, diagram.max))
+            {
+                cell.type = CELL_WATER;
+            }
+
+            e = e->next;
+        }
+    }
+
+    glm::vec3 land_color(0.96f, 0.84f, 0.69f);
+    glm::vec3 water_color(0.92f, 0.96f, 0.98f);
+
+    for(int i = 0; i < diagram.numsites; i++)
+    {
+        const jcv_site *site = &sites[i];
+        cell_info &cell = points_info[i];
+        glm::vec3 color = cell.type == CELL_LAND ? land_color : water_color;
+
+        jcv_point p1 = site->p;
+
+        glColor3fv(&color[0]);
+        const jcv_graphedge *e = site->edges;
+        while(e)
+        {
+            glVertex3f(p1.x, p1.y, -1.0f);
+            glVertex3f(e->pos[0].x, e->pos[0].y, -1.0f);
+            glVertex3f(e->pos[1].x, e->pos[1].y, -1.0f);
+            e = e->next;
+        }
+    }
+
+    glEnd();
+    glEndList();
+
+    return display_list;
 }
 
 float cube_verts[] =
@@ -367,7 +479,7 @@ void CharacterController::update(float dt)
     }
 
     btVector3 walk_direction = -direction[2] * trans.getBasis().getColumn(2);
-    cout << "Walk: " << walk_direction[0] << " " << walk_direction[1] << " " << walk_direction[2] << endl;
+    //cout << "Walk: " << walk_direction[0] << " " << walk_direction[1] << " " << walk_direction[2] << endl;
     con->setWalkDirection(dt*speed*walk_direction);
 }
 
@@ -375,7 +487,7 @@ void CharacterController::draw()
 {
     btTransform trans = ghost->getWorldTransform();
     btVector3 pos = trans.getOrigin();
-    cout << "Player: " << pos[0] << " " << pos[1] << " " << pos[2] << endl;
+    //cout << "Player: " << pos[0] << " " << pos[1] << " " << pos[2] << endl;
     float mat[16];
     trans.getOpenGLMatrix(mat);
     glPushMatrix();
@@ -442,7 +554,7 @@ int main()
         return 0;
     }
 
-    generate_voronoi_map();
+    GLuint voroni = generate_voronoi_map();
 
     map_grid *map = build_map();
     vector<glm::vec3> terrain_verts;
@@ -555,6 +667,10 @@ int main()
 
         glColor3f(1.0f, 0.0f, 0.0f);
         glCallList(map_list);
+
+        glTranslatef(0.0f, 5.0f, 0.0f);
+        glScalef(0.25f, 0.25f, 1.0f);
+        glCallList(voroni);
 
         SDL_GL_SwapWindow(window);
         end = SDL_GetTicks64();
