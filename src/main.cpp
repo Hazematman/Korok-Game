@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <algorithm>
 #include <random>
 #include <stdint.h>
 #include <SDL2/SDL.h>
@@ -208,6 +209,8 @@ enum cell_type
 struct cell_info
 {
     cell_type type;
+    bool is_border;
+    float height;
 };
 
 bool is_corner(jcv_point point, jcv_point min, jcv_point max)
@@ -218,8 +221,43 @@ bool is_corner(jcv_point point, jcv_point min, jcv_point max)
         || point.y == max.y;
 }
 
+
+float remap(float value, float min1, float max1, float min2, float max2) 
+{
+    return min2 + (value - min1) * (max2 - min2) / (max1 - min1);
+}
+
 jcv_point points[NUM_POINTS];
 cell_info points_info[NUM_POINTS];
+int distance_to_coast(const jcv_site *site, int current_distance, int min_distance, vector<int> &indicies)
+{
+    int index = site->index;
+    if(points_info[index].type == CELL_WATER) return current_distance;
+    if(current_distance >= min_distance) return min_distance;
+
+    indicies.push_back(index);
+    jcv_graphedge *e = site->edges;
+    while(e)
+    {
+        if(e->neighbor != NULL 
+                && find(indicies.begin(), indicies.end(), e->neighbor->index) == indicies.end())
+        {
+            int distance = distance_to_coast(e->neighbor, current_distance+1, min_distance, indicies); 
+            if(distance < min_distance) min_distance = distance;
+        }
+        else if(e->neighbor == NULL)
+        {
+            min_distance = current_distance+1;
+        }
+
+        e = e->next;
+    }
+
+    indicies.pop_back();
+
+    return min_distance;
+}
+
 /* Generate terrain based on the algorithm described in this blog post */
 /* http://www-cs-students.stanford.edu/~amitp/game-programming/polygon-map-generation/ */
 GLuint generate_voronoi_map()
@@ -243,12 +281,7 @@ GLuint generate_voronoi_map()
     jcv_diagram diagram = {0};
     jcv_diagram_generate(NUM_POINTS, (const jcv_point*)points, NULL, NULL, &diagram);
 
-    GLuint display_list = glGenLists(1);
-    glNewList(display_list, GL_COMPILE);
-    glBegin(GL_TRIANGLES);
-
-    random_device rd;
-    mt19937 gen(rd());
+    mt19937 gen(0);
     uniform_int_distribution<> distrib1(1, 6);
     uniform_real_distribution<float> distrib2(0.0f, 2.0f*M_PI);
     uniform_real_distribution<float> distrib3(0.2f, 0.7f);
@@ -256,12 +289,11 @@ GLuint generate_voronoi_map()
     float start_angle = distrib2(gen);
     float dip_angle = distrib2(gen);
     float dip_width = distrib3(gen);
-    float island_factor = 1.07f;
+    float island_factor = 1.00f;
 
-    const jcv_site *sites = jcv_diagram_get_sites(&diagram);
     for(int i = 0; i < NUM_POINTS; i++)
     {
-        glm::vec2 p(points[i].x/16.0f - 0.5f, points[i].y/16.0f - 0.5f);
+        glm::vec2 p(remap(points[i].x, 0, 16, -0.6, 0.6), remap(points[i].y, 0, 16, -0.6, 0.6));
         float angle = atan2f(p.y, p.x);
         float length = 0.5f * (glm::max(glm::abs(p.x), glm::abs(p.y)) + glm::length(p));
 
@@ -287,16 +319,20 @@ GLuint generate_voronoi_map()
         }
     }
 
+
+    const jcv_site *sites = jcv_diagram_get_sites(&diagram);
     for(int i = 0; i < diagram.numsites; i++)
     {
         const jcv_site *site = &sites[i];
-        cell_info &cell = points_info[i];
+        cell_info &cell = points_info[site->index];
 
         const jcv_graphedge *e = site->edges;
         while(e)
         {
-            if(is_corner(e->pos[0], diagram.min, diagram.max)
-                    || is_corner(e->pos[1], diagram.min, diagram.max))
+            cell.is_border = is_corner(e->pos[0], diagram.min, diagram.max)
+                || is_corner(e->pos[1], diagram.min, diagram.max);
+            
+            if(cell.is_border)
             {
                 cell.type = CELL_WATER;
             }
@@ -305,29 +341,63 @@ GLuint generate_voronoi_map()
         }
     }
 
+    for(int i = 0; i < diagram.numsites; i++)
+    {
+        const jcv_site *site = &sites[i];
+        vector<int> indicies;
+        int distance = distance_to_coast(site, 0, INT_MAX, indicies);
+        points_info[site->index].height = distance;
+    }
+
+
+    glPointSize(5.0f);
+    GLuint display_list = glGenLists(1);
+    glNewList(display_list, GL_COMPILE);
+
     glm::vec3 land_color(0.96f, 0.84f, 0.69f);
     glm::vec3 water_color(0.92f, 0.96f, 0.98f);
 
     for(int i = 0; i < diagram.numsites; i++)
     {
         const jcv_site *site = &sites[i];
-        cell_info &cell = points_info[i];
+        cell_info &cell = points_info[site->index];
         glm::vec3 color = cell.type == CELL_LAND ? land_color : water_color;
 
         jcv_point p1 = site->p;
 
-        glColor3fv(&color[0]);
         const jcv_graphedge *e = site->edges;
         while(e)
         {
-            glVertex3f(p1.x, p1.y, -1.0f);
-            glVertex3f(e->pos[0].x, e->pos[0].y, -1.0f);
-            glVertex3f(e->pos[1].x, e->pos[1].y, -1.0f);
+            glColor3fv(&color[0]);
+            glBegin(GL_TRIANGLES);
+            glVertex3f(p1.x, p1.y, -1.0f - cell.height);
+            glVertex3f(e->pos[0].x, e->pos[0].y, -1.0f - cell.height);
+            glVertex3f(e->pos[1].x, e->pos[1].y, -1.0f - cell.height);
+            glEnd();
+
+            glColor3f(0.0f, 0.0f, 0.0f);
+            glBegin(GL_LINES);
+            glVertex3f(e->pos[0].x, e->pos[0].y, -1.0f - cell.height);
+            glVertex3f(e->pos[1].x, e->pos[1].y, -1.0f - cell.height);
+            glEnd();
+
+#if 0
+            if(cell.type == CELL_LAND)
+            {
+                if(e->neighbor != NULL && points_info[e->neighbor->index].type == CELL_WATER)
+                {
+                    jcv_point p1 = e->neighbor->p;
+                    glBegin(GL_POINTS);
+                    glVertex3f(p1.x, p1.y, -1.0f);
+                    glEnd();
+                }
+            }
+#endif
+
             e = e->next;
         }
     }
 
-    glEnd();
     glEndList();
 
     return display_list;
@@ -668,7 +738,7 @@ int main()
         glColor3f(1.0f, 0.0f, 0.0f);
         glCallList(map_list);
 
-        glTranslatef(0.0f, 5.0f, 0.0f);
+        glTranslatef(0.0f, 3.0f, 0.0f);
         glScalef(0.25f, 0.25f, 1.0f);
         glCallList(voroni);
 
