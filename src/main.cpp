@@ -227,6 +227,12 @@ float remap(float value, float min1, float max1, float min2, float max2)
     return min2 + (value - min1) * (max2 - min2) / (max1 - min1);
 }
 
+void vertex3f(vector<glm::vec3> &verts, glm::vec3 vert)
+{
+    verts.push_back(vert);
+    glVertex3f(vert.x, vert.y, vert.z);
+}
+
 jcv_point points[NUM_POINTS];
 cell_info points_info[NUM_POINTS];
 int distance_to_coast(const jcv_site *site, int current_distance, int min_distance, vector<int> &indicies)
@@ -260,7 +266,7 @@ int distance_to_coast(const jcv_site *site, int current_distance, int min_distan
 
 /* Generate terrain based on the algorithm described in this blog post */
 /* http://www-cs-students.stanford.edu/~amitp/game-programming/polygon-map-generation/ */
-GLuint generate_voronoi_map()
+GLuint generate_voronoi_map(vector<glm::vec3> &verts)
 {
     srand(0);
 
@@ -368,17 +374,59 @@ GLuint generate_voronoi_map()
         const jcv_graphedge *e = site->edges;
         while(e)
         {
+            glm::vec3 v1(p1.x, 1.0f + cell.height, p1.y);
+            glm::vec3 v2(e->pos[0].x, 1.0f + cell.height, e->pos[0].y);
+            glm::vec3 v3(e->pos[1].x, 1.0f + cell.height, e->pos[1].y);
             glColor3fv(&color[0]);
             glBegin(GL_TRIANGLES);
-            glVertex3f(p1.x, p1.y, -1.0f - cell.height);
-            glVertex3f(e->pos[0].x, e->pos[0].y, -1.0f - cell.height);
-            glVertex3f(e->pos[1].x, e->pos[1].y, -1.0f - cell.height);
+            vertex3f(verts, v1);
+            vertex3f(verts, v2);
+            vertex3f(verts, v3);
             glEnd();
+
+            const jcv_site *neighbor = e->neighbor;
+            if(neighbor != NULL)
+            {
+                const jcv_graphedge *ne = neighbor->edges;
+                while(ne)
+                {
+                    cell_info &ncell = points_info[neighbor->index];
+                    if(ne->neighbor == site && ncell.height < cell.height)
+                    {
+                        glm::vec3 v1(e->pos[0].x,  1.0f + cell.height,  e->pos[0].y);
+                        glm::vec3 v2(e->pos[1].x,  1.0f + cell.height,  e->pos[1].y);
+                        glm::vec3 v3(ne->pos[0].x, 1.0f + ncell.height, ne->pos[0].y);
+                        glm::vec3 v4(ne->pos[1].x, 1.0f + ncell.height, ne->pos[1].y);
+                        glColor3fv(&color[0]);
+                        glBegin(GL_TRIANGLES);
+                        vertex3f(verts, v1);
+                        vertex3f(verts, v2);
+                        vertex3f(verts, v3);
+
+                        vertex3f(verts, v1);
+                        vertex3f(verts, v3);
+                        vertex3f(verts, v4);
+                        glEnd();
+
+                        glColor3f(0.0f, 0.0f, 0.0f);
+                        glBegin(GL_LINES);
+                        glVertex3f(v1.x, v1.y, v1.z);
+                        glVertex3f(v4.x, v4.y, v4.z);
+
+                        glVertex3f(v2.x, v2.y, v2.z);
+                        glVertex3f(v3.x, v3.y, v3.z);
+                        glEnd();
+                        break;
+                    }
+
+                    ne = ne->next;
+                }
+            }
 
             glColor3f(0.0f, 0.0f, 0.0f);
             glBegin(GL_LINES);
-            glVertex3f(e->pos[0].x, e->pos[0].y, -1.0f - cell.height);
-            glVertex3f(e->pos[1].x, e->pos[1].y, -1.0f - cell.height);
+            glVertex3f(v2.x, v2.y, v2.z);
+            glVertex3f(v3.x, v3.y, v3.z);
             glEnd();
 
 #if 0
@@ -586,6 +634,35 @@ void CharacterController::draw()
     glEnd(); 
 }
 
+void create_tri_mesh(vector<glm::vec3> &mesh_verts, btDiscreteDynamicsWorld* dynamicsWorld)
+{
+    btTriangleMesh *trimesh = new btTriangleMesh();
+    btVector3 verts[3];
+    // Build collision mesh for world
+    for(size_t i = 0; i < mesh_verts.size(); i++)
+    {
+        glm::vec3 &vert = mesh_verts[i];
+        size_t tri_index = i % 3;
+        verts[tri_index] = btVector3{vert.x, vert.y, vert.z};
+
+        if(tri_index == 2)
+        {
+            trimesh->addTriangle(verts[0], verts[1], verts[2]);
+        }
+    }
+
+    btGImpactMeshShape *gimpact = new btGImpactMeshShape(trimesh);
+    gimpact->updateBound();
+    btCollisionShape *col_shape = gimpact;
+    btDefaultMotionState *motion_state = new btDefaultMotionState(btTransform(btQuaternion(0,0,0,1), btVector3{0.0f, 0.0f, 0.0f}));
+    btVector3 inertia;
+    col_shape->calculateLocalInertia(0, inertia);
+    btRigidBody::btRigidBodyConstructionInfo ci(0, motion_state, col_shape, inertia);
+    btRigidBody *body = new btRigidBody(ci);
+
+    dynamicsWorld->addRigidBody(body);
+}
+
 int main()
 {
     if(SDL_Init(SDL_INIT_EVERYTHING) == -1)
@@ -624,7 +701,8 @@ int main()
         return 0;
     }
 
-    GLuint voroni = generate_voronoi_map();
+    vector<glm::vec3> voronoi_verts;
+    GLuint voroni = generate_voronoi_map(voronoi_verts);
 
     map_grid *map = build_map();
     vector<glm::vec3> terrain_verts;
@@ -641,35 +719,10 @@ int main()
     btSequentialImpulseConstraintSolver* solver = new btSequentialImpulseConstraintSolver;
 	btDiscreteDynamicsWorld* dynamicsWorld = new btDiscreteDynamicsWorld(dispatcher, overlappingPairCache, solver, collisionConfiguration);
 
-    dynamicsWorld->setGravity(btVector3{0, -20, 0});dynamicsWorld->setGravity(btVector3{0, -20, 0});
+    dynamicsWorld->setGravity(btVector3{0, -10, 0});
 
-    btTriangleMesh *trimesh = new btTriangleMesh();
-    btVector3 verts[3];
-    // Build collision mesh for world
-    for(size_t i = 0; i < terrain_verts.size(); i++)
-    {
-        glm::vec3 &vert = terrain_verts[i];
-        size_t tri_index = i % 3;
-        verts[tri_index] = btVector3{vert.x, vert.y, vert.z};
-
-        if(tri_index == 2)
-        {
-            trimesh->addTriangle(verts[0], verts[1], verts[2]);
-        }
-    }
-
-    {
-        btGImpactMeshShape *gimpact = new btGImpactMeshShape(trimesh);
-        gimpact->updateBound();
-        btCollisionShape *col_shape = gimpact;
-        btDefaultMotionState *motion_state = new btDefaultMotionState(btTransform(btQuaternion(0,0,0,1), btVector3{0.0f, 0.0f, 0.0f}));
-        btVector3 inertia;
-        col_shape->calculateLocalInertia(0, inertia);
-        btRigidBody::btRigidBodyConstructionInfo ci(0, motion_state, col_shape, inertia);
-        btRigidBody *body = new btRigidBody(ci);
-
-        dynamicsWorld->addRigidBody(body);
-    }
+    create_tri_mesh(terrain_verts, dynamicsWorld);
+    create_tri_mesh(voronoi_verts, dynamicsWorld);
 
     btVector3 extents(1.0f, 1.0f, 1.0f);
     btVector3 origin(3.0f, 100.0f, -5.0f);
@@ -738,8 +791,6 @@ int main()
         glColor3f(1.0f, 0.0f, 0.0f);
         glCallList(map_list);
 
-        glTranslatef(0.0f, 3.0f, 0.0f);
-        glScalef(0.25f, 0.25f, 1.0f);
         glCallList(voroni);
 
         SDL_GL_SwapWindow(window);
